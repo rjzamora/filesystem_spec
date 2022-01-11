@@ -8,6 +8,7 @@ from errno import ESPIPE
 from glob import has_magic
 from hashlib import sha256
 
+from .caching import precache_factory
 from .callbacks import _DEFAULT_CALLBACK
 from .config import apply_config, conf
 from .dircache import DirCache
@@ -956,6 +957,8 @@ class AbstractFileSystem(metaclass=_Cached):
         path,
         mode="rb",
         block_size=None,
+        precache=None,
+        precache_options=None,
         cache_options=None,
         compression=None,
         **kwargs,
@@ -974,6 +977,10 @@ class AbstractFileSystem(metaclass=_Cached):
             See builtin ``open()``
         block_size: int
             Some indication of buffering - this is a value in bytes
+        precache : str, optional
+            Optional precaching strategy
+        precache_options : dict, optional
+            Dictionary of arguments to pass through to the precache.
         cache_options : dict, optional
             Extra arguments to pass through to the cache.
         compression: string or None
@@ -1005,6 +1012,23 @@ class AbstractFileSystem(metaclass=_Cached):
                 **text_kwargs,
             )
         else:
+
+            # Handle Precaching.
+            # This optimization is intended for use with the
+            # `KnownPartsOfAFile` ("parts") cache type only.
+            if precache:
+                cache_type = kwargs.get("cache_type", "known")
+                if cache_type != "known":
+                    raise ValueError(f"{cache_type} does not support precaching!")
+                precache = precache_factory(
+                    [path],
+                    precache,
+                    **(precache_options or {}),
+                )
+                cache_options = cache_options or {}
+                cache_options["data"] = precache.data.get(path, {})
+                kwargs["cache_type"] = "known"
+
             ac = kwargs.pop("autocommit", not self._intrans)
             f = self._open(
                 path,

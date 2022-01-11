@@ -5,6 +5,8 @@ import math
 import os
 import warnings
 
+from .parquet import ParquetPrecache
+
 logger = logging.getLogger("fsspec")
 
 
@@ -518,3 +520,26 @@ caches = {
     "all": AllBytes,
     "parts": KnownPartsOfAFile,
 }
+
+
+class BasePrecache(object):
+    """Default Precache Method: Doesn't prefetch any data"""
+
+    name = "none"
+
+    @property
+    def data(self):
+        return {}
+
+
+precaches = {
+    "none": BasePrecache,
+    "parquet": ParquetPrecache,
+}
+
+
+def precache_factory(paths, method, **kwargs):
+    try:
+        return precaches[method or "none"](paths, **kwargs)
+    except KeyError:
+        f"{method} not a supported precache method!"

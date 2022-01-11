@@ -14,6 +14,89 @@ from .utils import merge_offset_ranges
 # on remote file systems.
 
 
+class ParquetPrecache(object):
+    """Parquet Aware Precache Method
+
+    Parameters
+    ----------
+    path: List[str]
+        Target file paths.
+    fs: AbstractFileSystem
+        Filesystem object to use for opening the file
+    metadata: Any, optional
+        Parquet metadata object. Object type must be supported
+        by the backend parquet engine. For now, only the "fastparquet"
+        engine supports an explicit `ParquetFile` metadata object.
+        If a metadata object is supplied, the remote footer metadata
+        will not need to be transferred into local memory.
+    engine : str, default "auto"
+        Parquet engine to use for metadata parsing. Allowed options
+        include "fastparquet", "pyarrow", and "auto". The specified
+        engine must be installed in the current environment. If
+        "auto" is specified, and both engines are installed,
+        "fastparquet" will take precedence over "pyarrow".
+    columns: list, optional
+        List of all column names that may be read from the file.
+    row_groups : list, optional
+        List of all row-groups that may be read from the file. This
+        may be a list of row-group indices (integers), or it may be
+        a list of `RowGroup` metadata objects (if the "fastparquet"
+        engine is used).
+    max_gap : int, optional
+        Neighboring byte ranges will only be merged when their
+        inter-range gap is <= `max_gap`. Default is 64KB.
+    max_block : int, optional
+        Neighboring byte ranges will only be merged when the size of
+        the aggregated range is <= `max_block`. Default is 256MB.
+    footer_sample_size : int, optional
+        Number of bytes to read from the end of the path to look
+        for the footer metadata. If the sampled bytes do not contain
+        the footer, a second read request will be required, and
+        performance will suffer. Default is 1MB.
+    """
+
+    name = "parquet"
+
+    def __init__(
+        self,
+        paths,
+        fs,
+        metadata=None,
+        columns=None,
+        row_groups=None,
+        engine="auto",
+        max_gap=64_000,
+        max_block=256_000_000,
+        footer_sample_size=1_000_000,
+    ):
+
+        # For now, `columns == []` not supported. Just use
+        # default `open` command with `path` input
+        if columns is not None and len(columns) == 0:
+            raise ValueError("columns can not be an empty list!")
+
+        # Set the engine
+        engine = _set_engine(engine)
+
+        # Fetch the known byte ranges needed to read
+        # `columns` and/or `row_groups`
+        self._data = _get_parquet_byte_ranges(
+            paths,
+            fs,
+            metadata=metadata,
+            columns=columns,
+            row_groups=row_groups,
+            engine=engine,
+            max_gap=max_gap,
+            max_block=max_block,
+            footer_sample_size=footer_sample_size,
+        )
+
+    @property
+    def data(self):
+        return self._data
+
+
 def open_parquet_file(
     path,
     mode="rb",
